@@ -1,0 +1,42 @@
+{
+  "name": "decentralized-health-visit",
+  "version": "1.0.0",
+  "description": "Blockchain-based CHW visit verification system",
+  "main": "index.js",
+  "scripts": {
+    "install:all": "npm run install:backend && npm run install:blockchain && npm run install:dashboard && npm run install:mobile && npm run install:feedback",
+    "install:backend": "cd backend && npm install",
+    "install:blockchain": "cd blockchain && npm install",
+    "install:dashboard": "cd dashboard && npm install",
+    "install:mobile": "cd mobile-app && npm install",
+    "install:feedback": "cd feedback && npm install",
+    "start:all": "concurrently \"npm run start:backend\" \"npm run start:dashboard\" \"npm run start:feedback\"",
+    "start:backend": "cd backend && npm start",
+    "start:dashboard": "cd dashboard && npm start",
+    "start:feedback": "cd feedback && npm start",
+    "start:mobile": "cd mobile-app && npm start",
+    "deploy:contracts": "cd blockchain && npx hardhat run scripts/deploy.js --network hardhat",
+    "test:all": "npm run test:backend && npm run test:blockchain",
+    "test:backend": "cd backend && npm test",
+    "test:blockchain": "cd blockchain && npx hardhat test",
+    "build:dashboard": "cd dashboard && npm run build",
+    "build:mobile": "cd mobile-app && expo build:android",
+    "setup": "npm run install:all && npm run deploy:contracts"
+  },
+  "keywords": [
+    "blockchain",
+    "healthcare",
+    "iot",
+    "verification",
+    "smart-contracts"
+  ],
+  "author": "Health Visit Verification Team",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  }
+}

@@ -1,0 +1,232 @@
+🏥 Project Title:
+Decentralized Health Visit Verification using IoT and Blockchain
+
+🎯 Objective:
+To build a tamper-proof, decentralized system that verifies community health worker (CHW) visits using IoT devices and blockchain technology, while ensuring data privacy, trust, and service quality through patient feedback, fraud detection, and analytics.
+
+🧩 Problem Statement:
+Community Health Workers (CHWs) are critical in rural and underserved regions, but the current system suffers from:
+
+Fake or misreported visits.
+
+No real-time verification of service delivery.
+
+No audit trail for interventions.
+
+Lack of patient trust.
+
+Inability to measure service quality or detect fraud.
+
+🔐 Proposed Solution:
+Create a blockchain-based digital identity and verification system for CHWs, using IoT tools like QR/NFC, mobile apps for check-ins, ML models for fraud detection, and dashboards for visual insights.
+
+⚙️ System Architecture Overview
+sql
+Copy
+Edit
+                   +----------------------+
+                   |  Verification Admin  |
+                   | (Govt/NGO Dashboard) |
+                   +----------+-----------+
+                              |
+                    [Reads blockchain]
+                              |
+               +--------------v--------------+
+               |     Smart Contract (BC)     |
+               | Stores:                     |
+               | - Visit Hash                |
+               | - CHW ID                    |
+               | - Timestamp                 |
+               | - Feedback Hash             |
+               +--------------+--------------+
+                              |
+        +---------------------+---------------------+
+        |                                           |
++-------v--------+                        +---------v---------+
+|   CHW Mobile   |                        |   Patient Mobile  |
+|     App        |                        |  (Feedback Link)  |
+| - QR/NFC Scan  |                        |  - Confirm visit  |
+| - GPS, Time    |                        |  - Submit rating  |
+| - Sign & Send  |                        |                   |
++----------------+                        +-------------------+
+🧱 Major Project Components
+1. Mobile App for CHWs
+CHWs log in using a digital ID (Ethereum wallet or DID).
+
+Scan QR/NFC tag at patient's home.
+
+Auto-captures GPS + timestamp.
+
+Visit data is hashed and signed.
+
+Sends signed payload to backend → pushed to blockchain.
+
+Tech:
+
+React Native or Flutter
+
+Web3.js or ethers.js
+
+NFC/QR plugin
+
+Expo GPS or Geolocation API
+
+2. Blockchain Backend
+Stores:
+
+Visit hash (patient + timestamp + CHW ID)
+
+Signature (CHW digital signature)
+
+Patient feedback hash (optional)
+
+Immutable and tamper-proof.
+
+Tech:
+
+Solidity (Smart Contracts)
+
+Polygon Mumbai / Ethereum Rinkeby
+
+Infura/Alchemy
+
+Hardhat for local development
+
+3. Verification & Analytics Dashboard
+Admin portal to:
+
+View all visits by CHWs
+
+See timestamps, GPS, patient ID
+
+Check digital signature integrity
+
+View heatmaps of coverage
+
+See flagged fraudulent activity
+
+Tech:
+
+React + Chart.js / Mapbox GL JS
+
+Express.js + Web3.js
+
+MongoDB (for mirrored off-chain data for faster access)
+
+Kepler.gl (heatmaps)
+
+4. Patient Feedback Mechanism
+After visit, patient gets an OTP or SMS link.
+
+Opens feedback form (1–5 stars, comment).
+
+Feedback is hashed (SHA-256) and stored on-chain.
+
+Tech:
+
+Firebase OTP API or Twilio SMS
+
+Lightweight web app or PWA
+
+Hashing: SHA-256 via Node.js
+
+5. AI-Based Fraud Detection (Optional Module)
+Train a lightweight model to detect patterns like:
+
+More than 10 visits in an hour
+
+CHWs logging visits from far GPS locations
+
+Identical timestamps repeated
+
+Tech:
+
+Python + scikit-learn
+
+Model trained on synthetic or anonymized real data
+
+Simple dashboard to flag anomalies
+
+6. IoT + Dynamic QR/NFC Tags
+Dynamic QR Codes:
+
+Expire every 5–10 minutes (time-based token)
+
+Avoids photo misuse
+
+NFC Tags:
+
+Carry rotating keys
+
+Secure physical proof of presence
+
+Tech:
+
+Node.js backend to generate rolling QR codes (e.g., using TOTP)
+
+NFC tags readable via Android NFC scanner
+
+🧪 Implementation Steps (MVP)
+
+Phase 2: CHW App
+Build app for scanning QR/NFC
+
+Capture location + time
+
+Sign with CHW private key
+
+Submit to backend
+
+Phase 3: Smart Contract
+Deploy smart contract to testnet
+
+Accept logs: visitHash, signature, CHW ID, feedback hash
+
+Phase 4: Feedback System
+OTP system to send feedback link to patient
+
+Collect feedback, hash it, store on blockchain
+
+Phase 5: Admin Dashboard
+Pull blockchain data
+
+Display in tabular format
+
+Add maps and heatmaps (Kepler.gl or Mapbox)
+
+Phase 6 (Optional): Fraud Detection
+Simulate fake CHW patterns
+
+Train a simple ML model
+
+Flag suspicious logs on dashboard
+
+🎯 Evaluation Metrics
+Metric	How to Measure
+Visit Authenticity	Verify digital signatures
+Feedback Rate	#feedbacks / #visits
+Fraud Detection Accuracy	True positives vs false positives
+Community Trust	Survey before/after trust levels
+System Usability	CHW satisfaction, latency, failures
+
+📦 Deployment Plan (for Demo)
+Host Smart Contract on Polygon Mumbai
+
+Host backend on Render / Railway
+
+Host React dashboard and mobile app as PWA
+
+Use Firebase Hosting for patient feedback portal
+
+Simulate 5–10 CHWs and 20+ visits
+
+📝 Deliverables
+Deliverable	Format
+Source Code	GitHub Repo
+Smart Contract	VisitLogger.sol
+Mobile App	APK / React Native build
+Dashboard	Hosted or Video Demo
+Final Report	PDF (IEEE format optional)
+Survey Forms	Google Forms or paper scan
+Community Feedback	Summary chart & insights
+Video Walkthrough	Optional but valuable
