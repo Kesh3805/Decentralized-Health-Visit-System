@@ -26,16 +26,29 @@ import {
   DialogActions,
   Grid,
   Card,
-  CardContent
+  CardContent,
+  IconButton,
+  Tooltip,
+  Divider,
+  List,
+  ListItem,
+  ListItemText,
+  LinearProgress
 } from '@mui/material';
 import { 
   Search as SearchIcon,
   CheckCircle as CheckCircleIcon,
   Warning as WarningIcon,
   Error as ErrorIcon,
-  Visibility as VisibilityIcon
+  Visibility as VisibilityIcon,
+  VerifiedUser as VerifiedUserIcon,
+  LinkOff as LinkOffIcon,
+  Link as LinkIcon,
+  CloudUpload as CloudUploadIcon
 } from '@mui/icons-material';
 import axios from 'axios';
+
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
 
 const Visits = () => {
   const [visits, setVisits] = useState([]);
@@ -48,6 +61,9 @@ const Visits = () => {
   const [selectedVisit, setSelectedVisit] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [verificationNotes, setVerificationNotes] = useState('');
+  const [blockchainStatus, setBlockchainStatus] = useState(null);
+  const [loadingBlockchain, setLoadingBlockchain] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
   
   useEffect(() => {
     fetchVisits();
@@ -73,9 +89,9 @@ const Visits = () => {
         params.append('status', statusFilter);
       }
 
-      const response = await axios.get(http://localhost:3001/api/admin/visits?, {
+      const response = await axios.get(`${API_BASE_URL}/api/admin/visits?${params}`, {
         headers: {
-          'Authorization': Bearer 
+          'Authorization': `Bearer ${token}`
         }
       });
 
@@ -112,7 +128,7 @@ const Visits = () => {
 
   const formatLocation = (location) => {
     if (location?.coordinates) {
-      return ${location.coordinates.latitude.toFixed(4)}, ;
+      return `${location.coordinates.latitude.toFixed(4)}, ${location.coordinates.longitude.toFixed(4)}`;
     }
     return 'N/A';
   };
@@ -122,6 +138,72 @@ const Visits = () => {
     visit.chwId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     visit.patientId?.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const handleViewVisit = async (visit) => {
+    setSelectedVisit(visit);
+    setDialogOpen(true);
+    setBlockchainStatus(null);
+    setLoadingBlockchain(true);
+    
+    try {
+      const token = localStorage.getItem('authToken');
+      const response = await axios.get(`${API_BASE_URL}/api/admin/visits/${visit.visitId}/blockchain-status`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      setBlockchainStatus(response.data.blockchainStatus);
+    } catch (err) {
+      console.error('Blockchain status error:', err);
+      setBlockchainStatus({ error: 'Failed to check blockchain status' });
+    } finally {
+      setLoadingBlockchain(false);
+    }
+  };
+
+  const handleVerifyVisit = async () => {
+    if (!selectedVisit) return;
+    setActionLoading(true);
+    
+    try {
+      const token = localStorage.getItem('authToken');
+      await axios.post(`${API_BASE_URL}/api/admin/visits/${selectedVisit.visitId}/verify`, 
+        { notes: verificationNotes },
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
+      
+      fetchVisits();
+      setDialogOpen(false);
+      setVerificationNotes('');
+    } catch (err) {
+      console.error('Verify visit error:', err);
+      setError('Failed to verify visit');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRecordOnBlockchain = async () => {
+    if (!selectedVisit) return;
+    setActionLoading(true);
+    
+    try {
+      const token = localStorage.getItem('authToken');
+      await axios.post(`${API_BASE_URL}/api/admin/visits/${selectedVisit.visitId}/record-blockchain`, {},
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
+      
+      // Refresh blockchain status
+      const response = await axios.get(`${API_BASE_URL}/api/admin/visits/${selectedVisit.visitId}/blockchain-status`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      setBlockchainStatus(response.data.blockchainStatus);
+      fetchVisits();
+    } catch (err) {
+      console.error('Record blockchain error:', err);
+      setError(err.response?.data?.error || 'Failed to record on blockchain');
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -245,6 +327,7 @@ const Visits = () => {
               <TableCell>Location</TableCell>
               <TableCell>Status</TableCell>
               <TableCell>Fraud Score</TableCell>
+              <TableCell>Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -265,6 +348,13 @@ const Visits = () => {
                     size="small"
                   />
                 </TableCell>
+                <TableCell>
+                  <Tooltip title="View Details">
+                    <IconButton size="small" onClick={() => handleViewVisit(visit)}>
+                      <VisibilityIcon />
+                    </IconButton>
+                  </Tooltip>
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -279,6 +369,181 @@ const Visits = () => {
           color="primary"
         />
       </Box>
+
+      {/* Visit Details Dialog */}
+      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>
+          Visit Details
+          {selectedVisit?.isVerified && (
+            <Chip 
+              label="Verified" 
+              color="success" 
+              size="small" 
+              icon={<CheckCircleIcon />}
+              sx={{ ml: 2 }}
+            />
+          )}
+        </DialogTitle>
+        <DialogContent dividers>
+          {selectedVisit && (
+            <Grid container spacing={3}>
+              <Grid item xs={12} md={6}>
+                <Typography variant="subtitle2" color="text.secondary">Visit Information</Typography>
+                <Divider sx={{ my: 1 }} />
+                <List dense>
+                  <ListItem>
+                    <ListItemText primary="Visit ID" secondary={selectedVisit.visitId} />
+                  </ListItem>
+                  <ListItem>
+                    <ListItemText primary="CHW ID" secondary={selectedVisit.chwId} />
+                  </ListItem>
+                  <ListItem>
+                    <ListItemText primary="Patient ID" secondary={selectedVisit.patientId} />
+                  </ListItem>
+                  <ListItem>
+                    <ListItemText primary="Timestamp" secondary={formatDate(selectedVisit.timestamp)} />
+                  </ListItem>
+                  <ListItem>
+                    <ListItemText primary="Location" secondary={formatLocation(selectedVisit.location)} />
+                  </ListItem>
+                  <ListItem>
+                    <ListItemText 
+                      primary="Visit Type" 
+                      secondary={selectedVisit.visitType || 'General Check-up'} 
+                    />
+                  </ListItem>
+                  <ListItem>
+                    <ListItemText 
+                      primary="Notes" 
+                      secondary={selectedVisit.notes || 'No notes'} 
+                    />
+                  </ListItem>
+                </List>
+              </Grid>
+              
+              <Grid item xs={12} md={6}>
+                <Typography variant="subtitle2" color="text.secondary">
+                  Blockchain Verification
+                </Typography>
+                <Divider sx={{ my: 1 }} />
+                
+                {loadingBlockchain ? (
+                  <Box sx={{ mt: 2 }}>
+                    <LinearProgress />
+                    <Typography variant="body2" sx={{ mt: 1 }}>Checking blockchain status...</Typography>
+                  </Box>
+                ) : blockchainStatus ? (
+                  <Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, mt: 1 }}>
+                      {blockchainStatus.isOnBlockchain ? (
+                        <>
+                          <LinkIcon color="success" sx={{ mr: 1 }} />
+                          <Typography variant="body1" color="success.main">
+                            Recorded on Blockchain
+                          </Typography>
+                        </>
+                      ) : (
+                        <>
+                          <LinkOffIcon color="warning" sx={{ mr: 1 }} />
+                          <Typography variant="body1" color="warning.main">
+                            Not on Blockchain
+                          </Typography>
+                        </>
+                      )}
+                    </Box>
+                    
+                    {blockchainStatus.isOnBlockchain && (
+                      <List dense>
+                        <ListItem>
+                          <ListItemText 
+                            primary="Block Number" 
+                            secondary={blockchainStatus.blockNumber} 
+                          />
+                        </ListItem>
+                        <ListItem>
+                          <ListItemText 
+                            primary="Transaction Hash" 
+                            secondary={
+                              <Typography variant="body2" sx={{ wordBreak: 'break-all' }}>
+                                {blockchainStatus.transactionHash}
+                              </Typography>
+                            } 
+                          />
+                        </ListItem>
+                        <ListItem>
+                          <ListItemText 
+                            primary="Block Timestamp" 
+                            secondary={blockchainStatus.blockTimestamp ? formatDate(blockchainStatus.blockTimestamp) : 'N/A'} 
+                          />
+                        </ListItem>
+                        <ListItem>
+                          <ListItemText 
+                            primary="Contract Verified" 
+                            secondary={blockchainStatus.contractVerified ? 'Yes' : 'No'} 
+                          />
+                        </ListItem>
+                      </List>
+                    )}
+                    
+                    {blockchainStatus.error && (
+                      <Alert severity="warning" sx={{ mt: 1 }}>
+                        {blockchainStatus.error}
+                      </Alert>
+                    )}
+                    
+                    {!blockchainStatus.isOnBlockchain && !blockchainStatus.error && (
+                      <Button
+                        variant="contained"
+                        color="primary"
+                        startIcon={<CloudUploadIcon />}
+                        onClick={handleRecordOnBlockchain}
+                        disabled={actionLoading}
+                        sx={{ mt: 2 }}
+                      >
+                        {actionLoading ? 'Recording...' : 'Record on Blockchain'}
+                      </Button>
+                    )}
+                  </Box>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    Unable to check blockchain status
+                  </Typography>
+                )}
+                
+                {!selectedVisit.isVerified && (
+                  <Box sx={{ mt: 3 }}>
+                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                      Manual Verification
+                    </Typography>
+                    <TextField
+                      fullWidth
+                      label="Verification Notes"
+                      multiline
+                      rows={2}
+                      value={verificationNotes}
+                      onChange={(e) => setVerificationNotes(e.target.value)}
+                      sx={{ mt: 1 }}
+                    />
+                    <Button
+                      variant="contained"
+                      color="success"
+                      startIcon={<VerifiedUserIcon />}
+                      onClick={handleVerifyVisit}
+                      disabled={actionLoading}
+                      sx={{ mt: 2 }}
+                    >
+                      {actionLoading ? 'Verifying...' : 'Verify Visit'}
+                    </Button>
+                  </Box>
+                )}
+              </Grid>
+            </Grid>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDialogOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

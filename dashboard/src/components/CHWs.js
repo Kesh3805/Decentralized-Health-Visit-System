@@ -42,6 +42,8 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
+
 const CHWs = () => {
   const [chws, setChws] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -86,9 +88,9 @@ const CHWs = () => {
         params.append('status', statusFilter);
       }
 
-      const response = await axios.get(http://localhost:3001/api/admin/chws?, {
+      const response = await axios.get(`${API_BASE_URL}/api/admin/chws?${params}`, {
         headers: {
-          'Authorization': Bearer 
+          'Authorization': `Bearer ${token}`
         }
       });
 
@@ -110,9 +112,9 @@ const CHWs = () => {
     try {
       const token = localStorage.getItem('authToken');
       
-      await axios.post('http://localhost:3001/api/admin/chws', formData, {
+      await axios.post(`${API_BASE_URL}/api/admin/chws`, formData, {
         headers: {
-          'Authorization': Bearer 
+          'Authorization': `Bearer ${token}`
         }
       });
 
@@ -123,6 +125,77 @@ const CHWs = () => {
       console.error('Add CHW error:', err);
       setError('Failed to add CHW');
     }
+  };
+
+  const handleEditChw = async () => {
+    try {
+      const token = localStorage.getItem('authToken');
+      
+      await axios.patch(`${API_BASE_URL}/api/admin/chws/${selectedChw.chwId}`, formData, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      fetchChws();
+      setDialogOpen(false);
+      resetForm();
+      setSelectedChw(null);
+    } catch (err) {
+      console.error('Edit CHW error:', err);
+      setError('Failed to update CHW');
+    }
+  };
+
+  const handleDeleteChw = async (chwId) => {
+    if (!window.confirm('Are you sure you want to delete this CHW?')) return;
+    
+    try {
+      const token = localStorage.getItem('authToken');
+      
+      await axios.delete(`${API_BASE_URL}/api/admin/chws/${chwId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      fetchChws();
+    } catch (err) {
+      console.error('Delete CHW error:', err);
+      setError('Failed to delete CHW');
+    }
+  };
+
+  const handleToggleStatus = async (chw) => {
+    try {
+      const token = localStorage.getItem('authToken');
+      
+      await axios.patch(`${API_BASE_URL}/api/admin/chws/${chw.chwId}`, {
+        isActive: !chw.isActive
+      }, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      fetchChws();
+    } catch (err) {
+      console.error('Toggle status error:', err);
+      setError('Failed to update CHW status');
+    }
+  };
+
+  const openEditDialog = (chw) => {
+    setSelectedChw(chw);
+    setFormData({
+      name: chw.name || '',
+      email: chw.email || '',
+      phone: chw.phone || '',
+      location: chw.location || '',
+      specialization: chw.specialization || '',
+      isActive: chw.isActive
+    });
+    setDialogOpen(true);
   };
 
   const resetForm = () => {
@@ -292,6 +365,7 @@ const CHWs = () => {
               <TableCell>Specialization</TableCell>
               <TableCell>Status</TableCell>
               <TableCell>Join Date</TableCell>
+              <TableCell>Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -307,6 +381,19 @@ const CHWs = () => {
                   {getStatusChip(chw.isActive, chw.isVerified)}
                 </TableCell>
                 <TableCell>{formatJoinDate(chw.createdAt)}</TableCell>
+                <TableCell>
+                  <IconButton size="small" onClick={() => openEditDialog(chw)} title="Edit">
+                    <EditIcon fontSize="small" />
+                  </IconButton>
+                  <IconButton 
+                    size="small" 
+                    onClick={() => handleToggleStatus(chw)}
+                    title={chw.isActive ? 'Deactivate' : 'Activate'}
+                    color={chw.isActive ? 'error' : 'success'}
+                  >
+                    {chw.isActive ? <BlockIcon fontSize="small" /> : <CheckCircleIcon fontSize="small" />}
+                  </IconButton>
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -323,7 +410,7 @@ const CHWs = () => {
       </Box>
 
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Add New CHW</DialogTitle>
+        <DialogTitle>{selectedChw ? 'Edit CHW' : 'Add New CHW'}</DialogTitle>
         <DialogContent>
           <Box sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
             <TextField
@@ -338,6 +425,7 @@ const CHWs = () => {
               type="email"
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              disabled={!!selectedChw}
             />
             <TextField
               fullWidth
@@ -360,13 +448,15 @@ const CHWs = () => {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
+          <Button onClick={() => { setDialogOpen(false); setSelectedChw(null); resetForm(); }}>
+            Cancel
+          </Button>
           <Button 
-            onClick={handleAddChw} 
+            onClick={selectedChw ? handleEditChw : handleAddChw} 
             variant="contained"
             disabled={!formData.name || !formData.email}
           >
-            Add CHW
+            {selectedChw ? 'Update CHW' : 'Add CHW'}
           </Button>
         </DialogActions>
       </Dialog>

@@ -47,6 +47,8 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
+
 const FraudDetection = () => {
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -71,9 +73,9 @@ const FraudDetection = () => {
         return;
       }
 
-      const response = await axios.get('http://localhost:3001/api/admin/fraud-alerts', {
+      const response = await axios.get(`${API_BASE_URL}/api/admin/fraud-alerts`, {
         headers: {
-          'Authorization': Bearer 
+          'Authorization': `Bearer ${token}`
         }
       });
 
@@ -94,12 +96,12 @@ const FraudDetection = () => {
     try {
       const token = localStorage.getItem('authToken');
       
-      await axios.post(http://localhost:3001/api/admin/fraud-alerts//resolve, {
+      await axios.post(`${API_BASE_URL}/api/admin/fraud-alerts/${alertId}/resolve`, {
         resolution,
         resolvedBy: 'admin'
       }, {
         headers: {
-          'Authorization': Bearer 
+          'Authorization': `Bearer ${token}`
         }
       });
 
@@ -380,7 +382,7 @@ const FraudDetection = () => {
                         </Typography>
                       </Box>
                       <Chip 
-                        label={Score: } 
+                        label={`Score: ${rule.score}`} 
                         size="small" 
                         color={rule.score > 50 ? 'error' : 'warning'}
                       />

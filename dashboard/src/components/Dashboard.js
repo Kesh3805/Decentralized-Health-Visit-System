@@ -8,7 +8,14 @@ import {
   CircularProgress, 
   Alert,
   LinearProgress,
-  Chip 
+  Chip,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper
 } from '@mui/material';
 import { 
   People as PeopleIcon, 
@@ -16,11 +23,14 @@ import {
   Assessment as AssessmentIcon, 
   Warning as WarningIcon,
   CheckCircle as CheckCircleIcon,
-  Error as ErrorIcon,
   Star as StarIcon,
-  TrendingUp as TrendingUpIcon
+  TrendingUp as TrendingUpIcon,
+  Refresh as RefreshIcon
 } from '@mui/icons-material';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
 
 const Dashboard = () => {
   const [stats, setStats] = useState({
@@ -33,56 +43,71 @@ const Dashboard = () => {
     fraudAlerts: 0,
     verificationRate: 0
   });
+  const [recentActivity, setRecentActivity] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const navigate = useNavigate();
 
   useEffect(() => {
-    const fetchDashboardData = async () => {
-      try {
-        setLoading(true);
-        
-        // Get authentication token
-        const token = localStorage.getItem('authToken');
-        if (!token) {
-          setError('Authentication required');
-          setLoading(false);
-          return;
-        }
+    fetchDashboardData();
+  }, []);
 
-        // Fetch dashboard statistics
-        const response = await axios.get('http://localhost:3001/api/admin/dashboard/stats', {
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      
+      // Get authentication token
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        setError('Authentication required');
+        setLoading(false);
+        return;
+      }
+
+      // Fetch dashboard statistics
+      const response = await axios.get(`${API_BASE_URL}/api/admin/dashboard/stats`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      setStats(response.data);
+      
+      // Fetch recent visits for activity
+      try {
+        const visitsResponse = await axios.get(`${API_BASE_URL}/api/admin/visits?limit=5`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }
         });
-
-        setStats(response.data);
-        setLoading(false);
-      } catch (err) {
-        console.error('Dashboard data fetch error:', err);
-        
-        if (err.response?.status === 401 || err.response?.status === 403) {
-          setError('Authentication failed. Please login again.');
-          // Clear invalid token
-          localStorage.removeItem('authToken');
-          localStorage.removeItem('user');
-        } else if (err.response?.status === 500) {
-          setError('Server error. Please try again later.');
-        } else if (err.code === 'ECONNREFUSED') {
-          setError('Unable to connect to server. Please check if the backend is running.');
-        } else {
-          setError('Failed to load dashboard data');
-        }
-        setLoading(false);
+        setRecentActivity(visitsResponse.data.visits || []);
+      } catch (visitsErr) {
+        console.warn('Could not fetch recent visits:', visitsErr);
       }
-    };
-
-    fetchDashboardData();
-  }, []);
+      
+      setLoading(false);
+    } catch (err) {
+      console.error('Dashboard data fetch error:', err);
+      
+      if (err.response?.status === 401 || err.response?.status === 403) {
+        setError('Authentication failed. Please login again.');
+        localStorage.removeItem('authToken');
+        localStorage.removeItem('user');
+      } else if (err.response?.status === 500) {
+        setError('Server error. Please try again later.');
+      } else if (err.code === 'ERR_NETWORK') {
+        setError('Unable to connect to server. Please check if the backend is running.');
+      } else {
+        setError('Failed to load dashboard data');
+      }
+      setLoading(false);
+    }
+  };
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}>
         <CircularProgress />
       </Box>
     );
@@ -91,13 +116,25 @@ const Dashboard = () => {
   if (error) {
     return (
       <Box sx={{ p: 3 }}>
-        <Alert severity="error">{error}</Alert>
+        <Alert 
+          severity="error" 
+          action={
+            <Chip 
+              icon={<RefreshIcon />} 
+              label="Retry" 
+              onClick={fetchDashboardData} 
+              clickable 
+            />
+          }
+        >
+          {error}
+        </Alert>
       </Box>
     );
   }
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: 3, mt: 8, ml: { sm: 30 } }}>
       <Typography variant="h4" gutterBottom>
         Dashboard Overview
       </Typography>
@@ -141,7 +178,7 @@ const Dashboard = () => {
               </Typography>
               <LinearProgress 
                 variant="determinate" 
-                value={parseFloat(stats.verificationRate)} 
+                value={parseFloat(stats.verificationRate) || 0} 
                 sx={{ mt: 1 }}
                 color="success"
               />
@@ -174,12 +211,12 @@ const Dashboard = () => {
           <Card sx={{ height: '100%' }}>
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                <WarningIcon sx={{ fontSize: 40, color: 'warning.main', mr: 2 }} />
+                <WarningIcon sx={{ fontSize: 40, color: stats.fraudAlerts > 0 ? 'error.main' : 'success.main', mr: 2 }} />
                 <Typography variant="h6" component="div">
                   Fraud Alerts
                 </Typography>
               </Box>
-              <Typography variant="h3" component="div" align="center" color="warning.main">
+              <Typography variant="h3" component="div" align="center" color={stats.fraudAlerts > 0 ? 'error.main' : 'success.main'}>
                 {stats.fraudAlerts}
               </Typography>
               <Typography variant="body2" color="text.secondary" align="center" sx={{ mt: 1 }}>
@@ -202,7 +239,7 @@ const Dashboard = () => {
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Box>
                   <Typography variant="h4" component="div" color="warning.main">
-                    {stats.averageRating.toFixed(1)} ★
+                    {(stats.averageRating || 0).toFixed(1)} ★
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     Average rating
@@ -226,7 +263,7 @@ const Dashboard = () => {
           <Card sx={{ height: '100%' }}>
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                <AssessmentIcon sx={{ fontSize: 40, color: 'primary.main', mr: 2 }} />
+                <TrendingUpIcon sx={{ fontSize: 40, color: 'primary.main', mr: 2 }} />
                 <Typography variant="h6" component="div">
                   System Status
                 </Typography>
@@ -267,7 +304,7 @@ const Dashboard = () => {
                   color="primary" 
                   variant="outlined"
                   clickable
-                  onClick={() => window.location.href = '/chws'}
+                  onClick={() => navigate('/chws')}
                 />
                 <Chip 
                   icon={<ListIcon />} 
@@ -275,7 +312,7 @@ const Dashboard = () => {
                   color="primary" 
                   variant="outlined"
                   clickable
-                  onClick={() => window.location.href = '/visits'}
+                  onClick={() => navigate('/visits')}
                 />
                 <Chip 
                   icon={<AssessmentIcon />} 
@@ -283,7 +320,7 @@ const Dashboard = () => {
                   color="primary" 
                   variant="outlined"
                   clickable
-                  onClick={() => window.location.href = '/analytics'}
+                  onClick={() => navigate('/analytics')}
                 />
                 <Chip 
                   icon={<WarningIcon />} 
@@ -291,169 +328,68 @@ const Dashboard = () => {
                   color="warning" 
                   variant="outlined"
                   clickable
-                  onClick={() => window.location.href = '/fraud-detection'}
+                  onClick={() => navigate('/fraud')}
+                />
+                <Chip 
+                  icon={<RefreshIcon />} 
+                  label="Refresh Data" 
+                  color="default" 
+                  variant="outlined"
+                  clickable
+                  onClick={fetchDashboardData}
                 />
               </Box>
             </CardContent>
           </Card>
         </Grid>
-      </Grid>
-    </Box>
-  );
-};
 
-export default Dashboard;
-    };
-
-    fetchDashboardData();
-  }, []);
-
-  if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
-
-  if (error) {
-    return (
-      <Box sx={{ p: 3 }}>
-        <Alert severity="error">{error}</Alert>
-      </Box>
-    );
-  }
-
-  return (
-    <Box sx={{ p: 3 }}>
-      <Typography variant="h4" gutterBottom>
-        Dashboard Overview
-      </Typography>
-      
-      <Grid container spacing={3}>
-        {/* Total Visits */}
-        <Grid item xs={12} sm={6} md={4}>
+        {/* Recent Activity */}
+        <Grid item xs={12}>
           <Card>
             <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                <ListIcon sx={{ fontSize: 40, color: 'primary.main', mr: 2 }} />
-                <Typography variant="h5" component="div">
-                  Total Visits
+              <Typography variant="h6" component="div" gutterBottom>
+                Recent Visits
+              </Typography>
+              {recentActivity.length > 0 ? (
+                <TableContainer component={Paper} variant="outlined">
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Visit ID</TableCell>
+                        <TableCell>CHW ID</TableCell>
+                        <TableCell>Patient ID</TableCell>
+                        <TableCell>Date</TableCell>
+                        <TableCell>Status</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {recentActivity.map((visit) => (
+                        <TableRow key={visit.visitId}>
+                          <TableCell>{visit.visitId?.substring(0, 20)}...</TableCell>
+                          <TableCell>{visit.chwId}</TableCell>
+                          <TableCell>{visit.patientId?.substring(0, 15)}...</TableCell>
+                          <TableCell>{new Date(visit.timestamp).toLocaleDateString()}</TableCell>
+                          <TableCell>
+                            <Chip 
+                              label={visit.isVerified ? 'Verified' : 'Pending'} 
+                              color={visit.isVerified ? 'success' : 'warning'} 
+                              size="small" 
+                            />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  No recent visits to display. Visits will appear here once CHWs start logging them.
                 </Typography>
-              </Box>
-              <Typography variant="h3" component="div" align="center">
-                {stats.totalVisits}
-              </Typography>
-              <Typography variant="body2" color="text.secondary" align="center">
-                +12% from last month
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        
-        {/* Verified Visits */}
-        <Grid item xs={12} sm={6} md={4}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                <CheckCircleIcon sx={{ fontSize: 40, color: 'success.main', mr: 2 }} />
-                <Typography variant="h5" component="div">
-                  Verified Visits
-                </Typography>
-              </Box>
-              <Typography variant="h3" component="div" align="center">
-                {stats.verifiedVisits}
-              </Typography>
-              <Typography variant="body2" color="text.secondary" align="center">
-                {(stats.verifiedVisits / stats.totalVisits * 100).toFixed(1)}% verification rate
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        
-        {/* Total CHWs */}
-        <Grid item xs={12} sm={6} md={4}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                <PeopleIcon sx={{ fontSize: 40, color: 'secondary.main', mr: 2 }} />
-                <Typography variant="h5" component="div">
-                  Active CHWs
-                </Typography>
-              </Box>
-              <Typography variant="h3" component="div" align="center">
-                {stats.totalCHWs}
-              </Typography>
-              <Typography variant="body2" color="text.secondary" align="center">
-                2 new this month
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        
-        {/* Feedback Count */}
-        <Grid item xs={12} sm={6} md={4}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                <AssessmentIcon sx={{ fontSize: 40, color: 'info.main', mr: 2 }} />
-                <Typography variant="h5" component="div">
-                  Feedback Received
-                </Typography>
-              </Box>
-              <Typography variant="h3" component="div" align="center">
-                {stats.feedbackCount}
-              </Typography>
-              <Typography variant="body2" color="text.secondary" align="center">
-                {(stats.feedbackCount / stats.totalVisits * 100).toFixed(1)}% feedback rate
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        
-        {/* Fraud Alerts */}
-        <Grid item xs={12} sm={6} md={4}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                <WarningIcon sx={{ fontSize: 40, color: 'error.main', mr: 2 }} />
-                <Typography variant="h5" component="div">
-                  Fraud Alerts
-                </Typography>
-              </Box>
-              <Typography variant="h3" component="div" align="center">
-                {stats.fraudAlerts}
-              </Typography>
-              <Typography variant="body2" color="text.secondary" align="center">
-                Requires immediate attention
-              </Typography>
+              )}
             </CardContent>
           </Card>
         </Grid>
       </Grid>
-      
-      {/* Recent Activity */}
-      <Box sx={{ mt: 4 }}>
-        <Typography variant="h5" gutterBottom>
-          Recent Activity
-        </Typography>
-        <Card>
-          <CardContent>
-            <Typography variant="body1">
-              • New CHW registration: Dr. Sarah Johnson (ID: CHW001)
-            </Typography>
-            <Typography variant="body1">
-              • Visit verified: Patient #P12345 at 2023-08-15 14:30
-            </Typography>
-            <Typography variant="body1">
-              • Feedback submitted: 5-star rating for Visit #V98765
-            </Typography>
-            <Typography variant="body1">
-              • Fraud alert: Suspicious pattern detected for CHW #CHW007
-            </Typography>
-          </CardContent>
-        </Card>
-      </Box>
     </Box>
   );
 };

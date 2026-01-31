@@ -18,8 +18,10 @@ import {
   Dashboard as DashboardIcon,
   List as ListIcon,
   People as PeopleIcon,
+  PersonAdd as PatientIcon,
   Assessment as AssessmentIcon,
   Warning as WarningIcon,
+  Settings as SettingsIcon,
   Logout as LogoutIcon
 } from '@mui/icons-material';
 import { Link, useNavigate } from 'react-router-dom';
@@ -60,6 +62,12 @@ const Navigation = ({ onLogout, user }) => {
           </ListItemIcon>
           <ListItemText primary="CHWs" />
         </ListItem>
+        <ListItem button component={Link} to="/patients">
+          <ListItemIcon>
+            <PatientIcon />
+          </ListItemIcon>
+          <ListItemText primary="Patients" />
+        </ListItem>
         <ListItem button component={Link} to="/analytics">
           <ListItemIcon>
             <AssessmentIcon />
@@ -71,6 +79,13 @@ const Navigation = ({ onLogout, user }) => {
             <WarningIcon />
           </ListItemIcon>
           <ListItemText primary="Fraud Detection" />
+        </ListItem>
+        <Divider sx={{ my: 1 }} />
+        <ListItem button component={Link} to="/settings">
+          <ListItemIcon>
+            <SettingsIcon />
+          </ListItemIcon>
+          <ListItemText primary="Settings" />
         </ListItem>
       </List>
     </div>

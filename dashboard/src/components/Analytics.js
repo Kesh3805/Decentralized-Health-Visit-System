@@ -28,6 +28,8 @@ import {
 import { Line, Bar, Pie } from 'react-chartjs-2';
 import axios from 'axios';
 
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
+
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -61,9 +63,9 @@ const Analytics = () => {
         return;
       }
 
-      const response = await axios.get(http://localhost:3001/api/admin/analytics?timeRange=, {
+      const response = await axios.get(`${API_BASE_URL}/api/admin/analytics?timeframe=${timeRange}`, {
         headers: {
-          'Authorization': Bearer 
+          'Authorization': `Bearer ${token}`
         }
       });
 

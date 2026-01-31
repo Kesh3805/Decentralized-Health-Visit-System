@@ -2,293 +2,373 @@
 
 This guide covers how to deploy the Decentralized Health Visit System to various environments.
 
-## 🚀 Quick Start (Local Development)
+## 🚀 Quick Start
 
-### Prerequisites
-- Node.js 16+
-- MongoDB (local or cloud)
-- Git
+### Option 1: Docker (Recommended)
 
-### Setup
 ```bash
 # Clone the repository
 git clone https://github.com/yourusername/decentralized-health-visit
 cd decentralized-health-visit
 
-# Install all dependencies
+# Copy environment file
+cp .env.example .env
+# Edit .env with your settings
+
+# Start development environment
+npm run docker:dev
+
+# Or run in background
+npm run docker:dev:d
+
+# Seed the database
+npm run docker:seed
+```
+
+Access the application:
+- Dashboard: http://localhost:3000
+- Backend API: http://localhost:3001
+- Feedback Portal: http://localhost:3002
+
+### Option 2: Manual Setup (Node.js)
+
+```bash
+# Prerequisites: Node.js 18+, MongoDB
+
+# Clone and install
+git clone https://github.com/yourusername/decentralized-health-visit
+cd decentralized-health-visit
 npm run install:all
 
-# Set up environment variables (copy and modify .env.example files)
+# Set up environment variables
 cp backend/.env.example backend/.env
+cp dashboard/.env.example dashboard/.env.local
 cp feedback/.env.example feedback/.env
-cp blockchain/.env.example blockchain/.env
 
-# Deploy smart contracts
+# Deploy smart contracts (optional)
 npm run deploy:contracts
+
+# Seed database
+npm run seed:all
 
 # Start all services
 npm run start:all
 ```
 
-## 🌐 Production Deployment
+---
 
-### Backend API Deployment
+## 🐳 Docker Deployment
 
-#### Option 1: Heroku
+### Development
+
 ```bash
-# Create Heroku app
+# Start all services with hot-reload
+npm run docker:dev
+
+# View logs
+npm run docker:logs
+
+# Stop services
+npm run docker:down
+
+# Stop and remove volumes (clean start)
+npm run docker:down:v
+```
+
+### Production
+
+```bash
+# Create production environment file
+cp .env.example .env
+# Edit .env with production values:
+# - NODE_ENV=production
+# - Strong JWT_SECRET
+# - MongoDB Atlas URI
+# - SSL certificates in nginx/ssl/
+
+# Build and start production
+npm run docker:prod
+
+# View running containers
+npm run docker:ps
+```
+
+### Docker Commands Reference
+
+| Command | Description |
+|---------|-------------|
+| `npm run docker:dev` | Start development environment |
+| `npm run docker:dev:d` | Start in background (detached) |
+| `npm run docker:prod` | Start production environment |
+| `npm run docker:down` | Stop all containers |
+| `npm run docker:down:v` | Stop and remove volumes |
+| `npm run docker:logs` | View container logs |
+| `npm run docker:seed` | Seed database |
+| `npm run docker:shell:backend` | Shell into backend container |
+| `npm run docker:shell:mongo` | MongoDB shell |
+
+---
+
+## ☁️ Cloud Deployment
+
+### AWS / DigitalOcean / Azure
+
+1. **Provision Infrastructure**
+   - Virtual Machine (2GB+ RAM)
+   - MongoDB Atlas or managed database
+   - Load balancer with SSL
+
+2. **Deploy with Docker**
+   ```bash
+   # On your server
+   git clone <your-repo>
+   cd decentralized-health-visit
+   
+   # Configure environment
+   cp .env.example .env
+   nano .env  # Edit with production values
+   
+   # Set up SSL certificates
+   # See nginx/ssl/README.md
+   
+   # Deploy
+   docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+   ```
+
+3. **Set up SSL with Let's Encrypt**
+   ```bash
+   sudo apt install certbot
+   sudo certbot certonly --standalone -d yourdomain.com
+   cp /etc/letsencrypt/live/yourdomain.com/fullchain.pem nginx/ssl/
+   cp /etc/letsencrypt/live/yourdomain.com/privkey.pem nginx/ssl/
+   ```
+
+### Heroku
+
+```bash
+# Backend
 heroku create your-health-visit-backend
+heroku config:set MONGODB_URI=mongodb+srv://...
+heroku config:set JWT_SECRET=your-secret
+git subtree push --prefix backend heroku main
 
-# Set environment variables
-heroku config:set MONGODB_URI=your-mongodb-atlas-uri
-heroku config:set JWT_SECRET=your-production-jwt-secret
-
-# Deploy
-git subtree push --prefix backend heroku master
+# Dashboard (use Netlify or Vercel instead)
 ```
 
-#### Option 2: AWS/DigitalOcean
-```bash
-# Build and deploy using PM2
-cd backend
-npm install -g pm2
-pm2 start server.js --name "health-visit-backend"
-pm2 startup
-pm2 save
-```
+### Vercel (Dashboard)
 
-### Dashboard Deployment
-
-#### Option 1: Netlify
-```bash
-cd dashboard
-npm run build
-# Upload build/ folder to Netlify or connect GitHub repository
-```
-
-#### Option 2: Vercel
 ```bash
 cd dashboard
 npm install -g vercel
 vercel --prod
 ```
 
-### Mobile App Deployment
-
-#### Android
-```bash
-cd mobile-app
-expo build:android
-# Download APK from Expo and distribute
-```
-
-#### iOS
-```bash
-cd mobile-app  
-expo build:ios
-# Submit to App Store using Expo
-```
+---
 
 ## 🔧 Environment Configuration
 
-### Backend (.env)
+### Root `.env` (Docker)
+
+```env
+NODE_ENV=production
+
+# Database
+MONGO_ROOT_USER=admin
+MONGO_ROOT_PASSWORD=secure-password-here
+
+# Backend
+JWT_SECRET=your-super-secret-jwt-key-min-32-characters
+BCRYPT_ROUNDS=14
+
+# Dashboard
+REACT_APP_API_URL=https://api.yourdomain.com
+
+# Blockchain
+BLOCKCHAIN_RPC_URL=http://blockchain:8545
+CONTRACT_ADDRESS=0x...
+
+# CORS
+CORS_ORIGIN=https://yourdomain.com
+```
+
+### Backend `.env`
+
 ```env
 NODE_ENV=production
 PORT=3001
-MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/healthvisit
-JWT_SECRET=your-super-secure-jwt-secret-min-32-chars
-BCRYPT_ROUNDS=12
-CONTRACT_ADDRESS=0x1234567890abcdef...
-PRIVATE_KEY=0xabcdef1234567890...
-RATE_LIMIT_WINDOW_MS=900000
-RATE_LIMIT_MAX_REQUESTS=100
-CORS_ORIGIN=https://your-dashboard-domain.com
+MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/healthvisit
+JWT_SECRET=your-production-jwt-secret
+BCRYPT_ROUNDS=14
+CORS_ORIGIN=https://yourdomain.com
+BLOCKCHAIN_RPC_URL=https://polygon-rpc.com
+CONTRACT_ADDRESS=0x...
 ```
 
-### Feedback System (.env)
+### Dashboard `.env.local`
+
+```env
+REACT_APP_API_URL=https://api.yourdomain.com
+REACT_APP_ENABLE_ANALYTICS=true
+```
+
+### Feedback `.env`
+
 ```env
 NODE_ENV=production
 PORT=3002
-TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-TWILIO_AUTH_TOKEN=your-twilio-auth-token
+BACKEND_API_URL=https://api.yourdomain.com
+TWILIO_ACCOUNT_SID=ACxxxxxxxx
+TWILIO_AUTH_TOKEN=your-token
 TWILIO_PHONE_NUMBER=+1234567890
-BACKEND_URL=https://your-backend-domain.com
-SESSION_SECRET=your-session-secret-key
 ```
 
-### Blockchain (.env)
-```env
-PRIVATE_KEY=0x1234567890abcdef...
-INFURA_PROJECT_ID=your-infura-project-id
-SEPOLIA_URL=https://sepolia.infura.io/v3/your-project-id
-MAINNET_URL=https://mainnet.infura.io/v3/your-project-id
-```
-
-## 🐳 Docker Deployment
-
-### Docker Compose
-```yaml
-version: '3.8'
-services:
-  backend:
-    build: ./backend
-    ports:
-      - "3001:3001"
-    environment:
-      - MONGODB_URI=mongodb://mongo:27017/healthvisit
-    depends_on:
-      - mongo
-      
-  dashboard:
-    build: ./dashboard
-    ports:
-      - "3000:3000"
-      
-  feedback:
-    build: ./feedback
-    ports:
-      - "3002:3002"
-      
-  mongo:
-    image: mongo:5
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo_data:/data/db
-
-volumes:
-  mongo_data:
-```
-
-### Build and Run
-```bash
-docker-compose up --build
-```
+---
 
 ## 🔐 Security Checklist
 
 ### Pre-Deployment
-- [ ] Update all default passwords and secrets
-- [ ] Enable HTTPS/SSL certificates
-- [ ] Configure firewall rules
-- [ ] Set up database backups
-- [ ] Configure log rotation
-- [ ] Test all API endpoints
-- [ ] Verify smart contract deployment
-- [ ] Test mobile app functionality
+
+- [ ] Generate strong JWT_SECRET (32+ characters)
+- [ ] Set NODE_ENV=production
+- [ ] Configure CORS_ORIGIN properly
+- [ ] Set up SSL certificates
+- [ ] Configure firewall (only expose 80/443)
+- [ ] Set up database authentication
+- [ ] Review rate limiting settings
+- [ ] Remove default/demo accounts
 
 ### Post-Deployment
-- [ ] Monitor application logs
-- [ ] Set up uptime monitoring
-- [ ] Configure error tracking (Sentry)
-- [ ] Test fraud detection system
-- [ ] Verify SMS functionality
-- [ ] Check database performance
-- [ ] Monitor blockchain transactions
 
-## 📊 Monitoring & Maintenance
+- [ ] Test all authentication flows
+- [ ] Verify HTTPS is working
+- [ ] Check security headers (use securityheaders.com)
+- [ ] Set up monitoring and alerting
+- [ ] Configure log rotation
+- [ ] Set up database backups
+- [ ] Test disaster recovery
 
-### Application Monitoring
-```bash
-# Backend logs
-tail -f backend/logs/combined.log
+---
 
-# PM2 monitoring (if using PM2)
-pm2 monit
-
-# Database monitoring
-mongo --eval "db.stats()"
-```
+## 📊 Monitoring
 
 ### Health Check Endpoints
-- Backend: `GET /api/health`
-- Database: `GET /api/admin/dashboard/stats`
-- Blockchain: Check contract deployment
 
-### Backup Strategy
+| Service | Endpoint |
+|---------|----------|
+| Backend | `GET /api/health` |
+| Feedback | `GET /health` |
+| Nginx | `GET /nginx-health` |
+
+### Logs
+
+```bash
+# Docker logs
+docker-compose logs -f backend
+docker-compose logs -f dashboard
+
+# Application logs
+docker-compose exec backend cat combined.log
+```
+
+### Backups
+
 ```bash
 # Database backup
-mongodump --uri="mongodb://localhost:27017/healthvisit" --out=backup/
+docker-compose exec mongodb mongodump --out=/backup
 
-# Application backup
-tar -czf app-backup-$(date +%Y%m%d).tar.gz /path/to/app
+# Copy backup from container
+docker cp healthvisit-mongodb:/backup ./backups/
 ```
 
-## 🚨 Troubleshooting
+---
 
-### Common Issues
+## 🔄 CI/CD with GitHub Actions
 
-#### Backend won't start
-```bash
-# Check MongoDB connection
-mongo --eval "db.runCommand({connectionStatus : 1})"
+Create `.github/workflows/deploy.yml`:
 
-# Check environment variables
-node -e "console.log(process.env.MONGODB_URI)"
-
-# Check port availability
-netstat -an | grep 3001
-```
-
-#### Smart Contract deployment fails
-```bash
-# Check network configuration
-npx hardhat console --network sepolia
-
-# Verify private key and gas settings
-npx hardhat run scripts/deploy.js --network sepolia
-```
-
-#### Mobile app build fails
-```bash
-# Clear Expo cache
-expo r -c
-
-# Check dependencies
-cd mobile-app && npm audit
-
-# Rebuild with verbose logging
-expo build:android --type apk --verbose
-```
-
-## 📞 Support
-
-For deployment issues:
-1. Check application logs
-2. Verify environment variables
-3. Test database connectivity
-4. Check network configurations
-5. Contact support team
-
-## 🔄 CI/CD Pipeline
-
-### GitHub Actions (`.github/workflows/deploy.yml`)
 ```yaml
-name: Deploy to Production
+name: Deploy
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
-  deploy:
+  test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-    
-    - name: Setup Node.js
-      uses: actions/setup-node@v2
-      with:
-        node-version: '16'
-        
-    - name: Install dependencies
-      run: npm run install:all
-      
-    - name: Run tests
-      run: npm run test:all
-      
-    - name: Deploy to production
-      run: |
-        # Add your deployment commands here
-        echo "Deploying to production..."
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      - run: npm run install:all
+      - run: npm run test:all
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v0.1.5
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            cd /app/decentralized-health-visit
+            git pull
+            docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
+
+---
+
+## 🚨 Troubleshooting
+
+### Container won't start
+
+```bash
+# Check logs
+docker-compose logs backend
+
+# Verify environment
+docker-compose config
+
+# Rebuild
+docker-compose build --no-cache backend
+```
+
+### Database connection issues
+
+```bash
+# Check MongoDB is running
+docker-compose ps mongodb
+
+# Test connection
+docker-compose exec mongodb mongosh --eval "db.runCommand({ping:1})"
+```
+
+### SSL certificate issues
+
+```bash
+# Verify certificates exist
+ls -la nginx/ssl/
+
+# Check nginx config
+docker-compose exec nginx nginx -t
+```
+
+---
+
+## 📞 Default Credentials
+
+After running `npm run seed:all` or `npm run docker:seed`:
+
+| Role | Username | Password |
+|------|----------|----------|
+| Super Admin | admin | admin123 |
+| Supervisor | supervisor | supervisor123 |
+| Analyst | analyst | analyst123 |
+| Demo CHW | chw1@healthvisit.local | password123 |
+
+⚠️ **Change these immediately in production!**

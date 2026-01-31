@@ -6,14 +6,19 @@ import {
   Button, 
   Typography, 
   Paper, 
-  Alert 
+  Alert,
+  CircularProgress 
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
+
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
 
 const Login = ({ onLogin }) => {
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
@@ -21,27 +26,48 @@ const Login = ({ onLogin }) => {
     setError('');
     
     // Simple validation
-    if (!email || !password) {
-      setError('Please enter both email and password');
+    if (!username || !password) {
+      setError('Please enter both username/email and password');
       return;
     }
     
-    // In a real app, you would authenticate with your backend
-    // For demo purposes, we'll simulate a successful login
+    setLoading(true);
+    
     try {
-      // Mock user data
+      // Authenticate with backend API
+      const response = await axios.post(`${API_BASE_URL}/api/auth/admin/login`, {
+        username,
+        password
+      });
+      
+      const { token, user } = response.data;
+      
       const userData = {
-        id: 'admin-001',
-        name: 'Admin User',
-        email: email,
-        role: 'admin',
-        token: 'mock_jwt_token_' + Date.now()
+        id: user.id,
+        adminId: user.adminId,
+        name: user.fullName,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        permissions: user.permissions,
+        token
       };
       
       onLogin(userData);
       navigate('/');
     } catch (err) {
-      setError('Invalid credentials. Please try again.');
+      console.error('Login error:', err);
+      if (err.response?.status === 401) {
+        setError('Invalid credentials. Please try again.');
+      } else if (err.response?.status === 423) {
+        setError('Account temporarily locked. Please try again later.');
+      } else if (err.code === 'ERR_NETWORK') {
+        setError('Cannot connect to server. Please ensure the backend is running.');
+      } else {
+        setError(err.response?.data?.error || 'Login failed. Please try again.');
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -75,13 +101,14 @@ const Login = ({ onLogin }) => {
               margin="normal"
               required
               fullWidth
-              id="email"
-              label="Email Address"
-              name="email"
-              autoComplete="email"
+              id="username"
+              label="Username or Email"
+              name="username"
+              autoComplete="username"
               autoFocus
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              disabled={loading}
             />
             <TextField
               margin="normal"
@@ -94,19 +121,23 @@ const Login = ({ onLogin }) => {
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              disabled={loading}
             />
             <Button
               type="submit"
               fullWidth
               variant="contained"
               sx={{ mt: 3, mb: 2 }}
+              disabled={loading}
             >
-              Sign In
+              {loading ? <CircularProgress size={24} color="inherit" /> : 'Sign In'}
             </Button>
           </Box>
           
-          <Typography variant="body2" align="center" sx={{ mt: 3 }}>
-            Demo credentials: admin@example.com / password
+          <Typography variant="body2" align="center" sx={{ mt: 3 }} color="text.secondary">
+            Use your admin credentials to login.
+            <br />
+            Run `npm run seed:admin` to create a default admin.
           </Typography>
         </Paper>
       </Box>

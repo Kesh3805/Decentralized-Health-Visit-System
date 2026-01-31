@@ -1,0 +1,118 @@
+version: '3.8'
+
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:6.0
+    container_name: healthvisit-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-password123}
+      MONGO_INITDB_DATABASE: healthvisit
+    volumes:
+      - mongodb_data:/data/db
+      - ./scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    networks:
+      - healthvisit-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: healthvisit-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3001
+      MONGODB_URI: mongodb://${MONGO_ROOT_USER:-admin}:${MONGO_ROOT_PASSWORD:-password123}@mongodb:27017/healthvisit?authSource=admin
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      BLOCKCHAIN_RPC_URL: ${BLOCKCHAIN_RPC_URL:-http://blockchain:8545}
+      CONTRACT_ADDRESS: ${CONTRACT_ADDRESS:-}
+    ports:
+      - "${BACKEND_PORT:-3001}:3001"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - healthvisit-network
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Admin Dashboard
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+      args:
+        REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:3001}
+    container_name: healthvisit-dashboard
+    restart: unless-stopped
+    ports:
+      - "${DASHBOARD_PORT:-3000}:80"
+    depends_on:
+      - backend
+    networks:
+      - healthvisit-network
+
+  # Feedback Portal
+  feedback:
+    build:
+      context: ./feedback
+      dockerfile: Dockerfile
+    container_name: healthvisit-feedback
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3002
+      BACKEND_API_URL: http://backend:3001
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER:-}
+    ports:
+      - "${FEEDBACK_PORT:-3002}:3002"
+    depends_on:
+      - backend
+    networks:
+      - healthvisit-network
+    volumes:
+      - ./feedback:/app
+      - /app/node_modules
+
+  # Blockchain Node (Hardhat)
+  blockchain:
+    build:
+      context: ./blockchain
+      dockerfile: Dockerfile
+    container_name: healthvisit-blockchain
+    restart: unless-stopped
+    ports:
+      - "${BLOCKCHAIN_PORT:-8545}:8545"
+    networks:
+      - healthvisit-network
+    volumes:
+      - blockchain_data:/app/deployments
+
+networks:
+  healthvisit-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+  blockchain_data:

@@ -14,18 +14,41 @@ const winston = require('winston');
 // Import models
 const { CHW, Visit, Patient, Feedback, Admin } = require('./models');
 
+// Environment configuration
+const isProduction = process.env.NODE_ENV === 'production';
+
 // Initialize Express app
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Security middleware
-app.use(helmet());
-app.use(cors());
+// Trust proxy for production (behind nginx/load balancer)
+if (isProduction) {
+  app.set('trust proxy', 1);
+}
 
-// Rate limiting
+// Security middleware with production-aware settings
+app.use(helmet({
+  contentSecurityPolicy: isProduction ? undefined : false,
+  crossOriginEmbedderPolicy: isProduction
+}));
+
+// CORS configuration
+const corsOptions = {
+  origin: isProduction 
+    ? (process.env.CORS_ORIGIN || '').split(',').map(s => s.trim())
+    : true,
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
+
+// Rate limiting with production-aware settings
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100 // limit each IP to 100 requests per windowMs
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || (isProduction ? 100 : 1000),
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => !isProduction && req.ip === '127.0.0.1'
 });
 app.use(limiter);
 
@@ -314,6 +337,42 @@ app.post('/api/auth/admin/login', async (req, res) => {
   }
 });
 
+// Admin Password Change
+app.post('/api/auth/admin/change-password', authenticateAdmin, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current password and new password are required' });
+    }
+    
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: 'New password must be at least 8 characters' });
+    }
+    
+    const admin = await Admin.findById(req.admin._id);
+    if (!admin) {
+      return res.status(404).json({ error: 'Admin not found' });
+    }
+    
+    // Verify current password
+    const isValidPassword = await admin.comparePassword(currentPassword);
+    if (!isValidPassword) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+    
+    // Update password
+    admin.password = newPassword;
+    await admin.save();
+    
+    res.json({ message: 'Password changed successfully' });
+  } catch (error) {
+    console.error('Admin password change error:', error);
+    logger.error('Admin password change error:', error);
+    res.status(500).json({ error: 'Failed to change password' });
+  }
+});
+
 // Patient QR/NFC Tag Management
 
 // Generate dynamic QR code or NFC tag for patient
@@ -593,8 +652,233 @@ app.get('/api/visits/:visitId', authenticateToken, async (req, res) => {
   }
 });
 
-// Continue with more routes...
-// Continue with more routes...
+// Verify visit for feedback portal (public endpoint)
+app.get('/api/visits/:visitId/verify-for-feedback', async (req, res) => {
+  try {
+    const { visitId } = req.params;
+    
+    const visit = await Visit.findOne({ visitId });
+    
+    if (!visit) {
+      return res.json({ valid: false, error: 'Visit not found' });
+    }
+    
+    // Check if visit already has feedback
+    const existingFeedback = await Feedback.findOne({ visitId });
+    if (existingFeedback) {
+      return res.json({ valid: false, error: 'Feedback already submitted for this visit' });
+    }
+    
+    // Check if visit is within feedback window (e.g., 7 days)
+    const feedbackWindowDays = 7;
+    const visitDate = new Date(visit.timestamp);
+    const now = new Date();
+    const daysSinceVisit = Math.floor((now - visitDate) / (1000 * 60 * 60 * 24));
+    
+    if (daysSinceVisit > feedbackWindowDays) {
+      return res.json({ 
+        valid: false, 
+        error: `Feedback window has expired. Visits can only receive feedback within ${feedbackWindowDays} days.`
+      });
+    }
+    
+    res.json({
+      valid: true,
+      visit: {
+        visitId: visit.visitId,
+        timestamp: visit.timestamp,
+        visitType: visit.visitType,
+        services: visit.services
+      }
+    });
+  } catch (error) {
+    console.error('Visit verification for feedback error:', error);
+    logger.error('Visit verification for feedback error:', error);
+    res.json({ valid: false, error: 'Failed to verify visit' });
+  }
+});
+
+// CHW Registration (public endpoint for self-registration)
+app.post('/api/auth/chw/register', async (req, res) => {
+  try {
+    const { 
+      name, 
+      email, 
+      phone, 
+      password,
+      licenseNumber, 
+      walletAddress, 
+      organization, 
+      region, 
+      specialization 
+    } = req.body;
+    
+    // Validate required fields
+    if (!name || !email || !phone || !password || !licenseNumber || !walletAddress) {
+      return res.status(400).json({ error: 'Missing required fields: name, email, phone, password, licenseNumber, walletAddress' });
+    }
+    
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: 'Invalid email format' });
+    }
+    
+    // Validate password strength
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+    
+    // Validate wallet address format
+    const walletRegex = /^0x[a-fA-F0-9]{40}$/;
+    if (!walletRegex.test(walletAddress)) {
+      return res.status(400).json({ error: 'Invalid wallet address format' });
+    }
+    
+    // Check for existing CHW with same email, license, or wallet
+    const existingCHW = await CHW.findOne({
+      $or: [
+        { email: email.toLowerCase() },
+        { licenseNumber },
+        { walletAddress: walletAddress.toLowerCase() }
+      ]
+    });
+    
+    if (existingCHW) {
+      if (existingCHW.email === email.toLowerCase()) {
+        return res.status(400).json({ error: 'Email already registered' });
+      }
+      if (existingCHW.licenseNumber === licenseNumber) {
+        return res.status(400).json({ error: 'License number already registered' });
+      }
+      if (existingCHW.walletAddress === walletAddress.toLowerCase()) {
+        return res.status(400).json({ error: 'Wallet address already registered' });
+      }
+    }
+    
+    // Generate CHW ID
+    const chwId = `CHW-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+    
+    const chw = new CHW({
+      chwId,
+      name,
+      email: email.toLowerCase(),
+      phone,
+      password, // Will be hashed by the pre-save hook
+      licenseNumber,
+      walletAddress: walletAddress.toLowerCase(),
+      organization,
+      region,
+      specialization,
+      isVerified: false, // Requires admin verification
+      isActive: true
+    });
+    
+    await chw.save();
+    
+    // Generate JWT token
+    const token = generateJWT({ 
+      id: chw._id, 
+      chwId: chw.chwId, 
+      walletAddress: chw.walletAddress,
+      role: 'chw' 
+    });
+    
+    logger.info(`New CHW registered: ${chwId}`);
+    
+    res.status(201).json({
+      message: 'Registration successful. Your account is pending verification.',
+      token,
+      user: {
+        id: chw._id,
+        chwId: chw.chwId,
+        name: chw.name,
+        email: chw.email,
+        walletAddress: chw.walletAddress,
+        isVerified: chw.isVerified,
+        role: 'chw'
+      }
+    });
+  } catch (error) {
+    console.error('CHW registration error:', error);
+    logger.error('CHW registration error:', error);
+    
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern)[0];
+      return res.status(400).json({ error: `${field} already exists` });
+    }
+    
+    res.status(500).json({ error: 'Registration failed' });
+  }
+});
+
+// Password change for CHW
+app.post('/api/auth/chw/change-password', authenticateToken, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current and new password required' });
+    }
+    
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'New password must be at least 6 characters' });
+    }
+    
+    const chw = await CHW.findById(req.user.id);
+    if (!chw) {
+      return res.status(404).json({ error: 'CHW not found' });
+    }
+    
+    const isValidPassword = await chw.comparePassword(currentPassword);
+    if (!isValidPassword) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+    
+    chw.password = newPassword; // Will be hashed by pre-save hook
+    await chw.save();
+    
+    res.json({ message: 'Password changed successfully' });
+  } catch (error) {
+    console.error('Password change error:', error);
+    logger.error('Password change error:', error);
+    res.status(500).json({ error: 'Failed to change password' });
+  }
+});
+
+// Get CHW profile
+app.get('/api/chw/profile', authenticateToken, async (req, res) => {
+  try {
+    const chw = await CHW.findById(req.user.id).select('-password');
+    
+    if (!chw) {
+      return res.status(404).json({ error: 'CHW not found' });
+    }
+    
+    res.json({
+      user: {
+        id: chw._id,
+        chwId: chw.chwId,
+        name: chw.name,
+        email: chw.email,
+        phone: chw.phone,
+        walletAddress: chw.walletAddress,
+        organization: chw.organization,
+        region: chw.region,
+        specialization: chw.specialization,
+        totalVisits: chw.totalVisits,
+        isVerified: chw.isVerified,
+        isActive: chw.isActive,
+        registrationTime: chw.registrationTime,
+        lastLogin: chw.lastLogin
+      }
+    });
+  } catch (error) {
+    console.error('Get CHW profile error:', error);
+    logger.error('Get CHW profile error:', error);
+    res.status(500).json({ error: 'Failed to retrieve profile' });
+  }
+});
 
 // Feedback Management Routes
 
@@ -820,6 +1104,458 @@ app.post('/api/admin/chws', authenticateAdmin, async (req, res) => {
   }
 });
 
+// Update CHW (admin only)
+app.patch('/api/admin/chws/:id', authenticateAdmin, async (req, res) => {
+  try {
+    if (!req.admin.hasPermission('manage_chws')) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+    
+    const allowedUpdates = ['name', 'phone', 'region', 'organization', 'specialization', 'isActive'];
+    const updates = {};
+    
+    for (const key of allowedUpdates) {
+      if (req.body[key] !== undefined) {
+        updates[key] = req.body[key];
+      }
+    }
+    
+    const chw = await CHW.findByIdAndUpdate(
+      req.params.id,
+      { $set: updates },
+      { new: true, runValidators: true }
+    ).select('-password');
+    
+    if (!chw) {
+      return res.status(404).json({ error: 'CHW not found' });
+    }
+    
+    res.json({
+      message: 'CHW updated successfully',
+      chw
+    });
+  } catch (error) {
+    console.error('Update CHW error:', error);
+    logger.error('Update CHW error:', error);
+    res.status(500).json({ error: 'Failed to update CHW' });
+  }
+});
+
+// Get single CHW (admin only)
+app.get('/api/admin/chws/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const chw = await CHW.findById(req.params.id).select('-password');
+    
+    if (!chw) {
+      return res.status(404).json({ error: 'CHW not found' });
+    }
+    
+    res.json({ chw });
+  } catch (error) {
+    console.error('Get CHW error:', error);
+    logger.error('Get CHW error:', error);
+    res.status(500).json({ error: 'Failed to retrieve CHW' });
+  }
+});
+
+// Deactivate CHW (admin only)
+app.delete('/api/admin/chws/:id', authenticateAdmin, async (req, res) => {
+  try {
+    if (!req.admin.hasPermission('manage_chws')) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+    
+    const chw = await CHW.findByIdAndUpdate(
+      req.params.id,
+      { $set: { isActive: false } },
+      { new: true }
+    );
+    
+    if (!chw) {
+      return res.status(404).json({ error: 'CHW not found' });
+    }
+    
+    res.json({
+      message: 'CHW deactivated successfully'
+    });
+  } catch (error) {
+    console.error('Deactivate CHW error:', error);
+    logger.error('Deactivate CHW error:', error);
+    res.status(500).json({ error: 'Failed to deactivate CHW' });
+  }
+});
+
+// =============================================
+// PATIENT MANAGEMENT (ADMIN)
+// =============================================
+
+// Get all patients (admin only)
+app.get('/api/admin/patients', authenticateAdmin, async (req, res) => {
+  try {
+    const { 
+      page = 1, 
+      limit = 20, 
+      search,
+      region,
+      isActive
+    } = req.query;
+    
+    const filter = {};
+    
+    if (search) {
+      filter.$or = [
+        { patientId: { $regex: search, $options: 'i' } },
+        { 'location.region': { $regex: search, $options: 'i' } },
+        { 'contactInfo.phone': { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    if (region) filter['location.region'] = region;
+    if (isActive !== undefined) filter.isActive = isActive === 'true';
+    
+    const patients = await Patient.find(filter)
+      .select('-hashedPatientId')
+      .sort({ enrollmentDate: -1 })
+      .skip((page - 1) * limit)
+      .limit(parseInt(limit));
+    
+    const total = await Patient.countDocuments(filter);
+    
+    res.json({
+      patients,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    });
+  } catch (error) {
+    console.error('Get patients error:', error);
+    logger.error('Get patients error:', error);
+    res.status(500).json({ error: 'Failed to retrieve patients' });
+  }
+});
+
+// Get patient stats (admin only)
+app.get('/api/admin/patients/stats', authenticateAdmin, async (req, res) => {
+  try {
+    const total = await Patient.countDocuments();
+    const active = await Patient.countDocuments({ isActive: true });
+    const withNfc = await Patient.countDocuments({ 'nfcTag.isActive': true });
+    
+    // Patients who haven't been visited in 30+ days
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const needsVisit = await Patient.countDocuments({
+      isActive: true,
+      $or: [
+        { lastVisitDate: { $lt: thirtyDaysAgo } },
+        { lastVisitDate: { $exists: false } }
+      ]
+    });
+    
+    res.json({
+      total,
+      active,
+      withNfc,
+      needsVisit
+    });
+  } catch (error) {
+    console.error('Get patient stats error:', error);
+    logger.error('Get patient stats error:', error);
+    res.status(500).json({ error: 'Failed to retrieve patient stats' });
+  }
+});
+
+// Register new patient (admin only)
+app.post('/api/admin/patients', authenticateAdmin, async (req, res) => {
+  try {
+    if (!req.admin.hasPermission('manage_chws')) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+    
+    const { 
+      patientId, 
+      demographics, 
+      location, 
+      contactInfo, 
+      consentGiven 
+    } = req.body;
+    
+    if (!patientId) {
+      return res.status(400).json({ error: 'Patient ID is required' });
+    }
+    
+    // Generate hashed patient ID for privacy
+    const crypto = require('crypto');
+    const hashedPatientId = crypto.createHash('sha256').update(patientId).digest('hex');
+    
+    // Generate QR code data
+    const qrData = crypto.randomBytes(32).toString('hex');
+    
+    const patient = new Patient({
+      patientId,
+      hashedPatientId,
+      demographics,
+      location,
+      contactInfo,
+      consentGiven: consentGiven || false,
+      consentDate: consentGiven ? new Date() : null,
+      qrCode: {
+        data: qrData,
+        generatedAt: new Date(),
+        expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year
+        isActive: true
+      }
+    });
+    
+    await patient.save();
+    
+    res.status(201).json({
+      message: 'Patient registered successfully',
+      patient: {
+        patientId: patient.patientId,
+        qrCode: patient.qrCode.data,
+        enrollmentDate: patient.enrollmentDate
+      }
+    });
+  } catch (error) {
+    console.error('Patient registration error:', error);
+    logger.error('Patient registration error:', error);
+    
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern)[0];
+      return res.status(400).json({ error: `${field} already exists` });
+    }
+    
+    res.status(500).json({ error: 'Failed to register patient' });
+  }
+});
+
+// Get single patient (admin only)
+app.get('/api/admin/patients/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const patient = await Patient.findById(req.params.id).select('-hashedPatientId');
+    
+    if (!patient) {
+      return res.status(404).json({ error: 'Patient not found' });
+    }
+    
+    res.json({ patient });
+  } catch (error) {
+    console.error('Get patient error:', error);
+    logger.error('Get patient error:', error);
+    res.status(500).json({ error: 'Failed to retrieve patient' });
+  }
+});
+
+// Update patient (admin only)
+app.patch('/api/admin/patients/:id', authenticateAdmin, async (req, res) => {
+  try {
+    if (!req.admin.hasPermission('manage_chws')) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+    
+    const allowedUpdates = ['demographics', 'location', 'contactInfo', 'consentGiven', 'isActive', 'preferences'];
+    const updates = {};
+    
+    for (const key of allowedUpdates) {
+      if (req.body[key] !== undefined) {
+        updates[key] = req.body[key];
+      }
+    }
+    
+    const patient = await Patient.findByIdAndUpdate(
+      req.params.id,
+      { $set: updates },
+      { new: true, runValidators: true }
+    ).select('-hashedPatientId');
+    
+    if (!patient) {
+      return res.status(404).json({ error: 'Patient not found' });
+    }
+    
+    res.json({
+      message: 'Patient updated successfully',
+      patient
+    });
+  } catch (error) {
+    console.error('Update patient error:', error);
+    logger.error('Update patient error:', error);
+    res.status(500).json({ error: 'Failed to update patient' });
+  }
+});
+
+// Deactivate patient (admin only)
+app.delete('/api/admin/patients/:id', authenticateAdmin, async (req, res) => {
+  try {
+    if (!req.admin.hasPermission('manage_chws')) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+    
+    const patient = await Patient.findByIdAndUpdate(
+      req.params.id,
+      { 
+        $set: { 
+          isActive: false,
+          'qrCode.isActive': false,
+          'nfcTag.isActive': false
+        }
+      },
+      { new: true }
+    );
+    
+    if (!patient) {
+      return res.status(404).json({ error: 'Patient not found' });
+    }
+    
+    res.json({
+      message: 'Patient deactivated successfully'
+    });
+  } catch (error) {
+    console.error('Deactivate patient error:', error);
+    logger.error('Deactivate patient error:', error);
+    res.status(500).json({ error: 'Failed to deactivate patient' });
+  }
+});
+
+// Generate QR code for patient (admin only)
+app.post('/api/admin/patients/:id/generate-qr', authenticateAdmin, async (req, res) => {
+  try {
+    const crypto = require('crypto');
+    const patient = await Patient.findById(req.params.id);
+    
+    if (!patient) {
+      return res.status(404).json({ error: 'Patient not found' });
+    }
+    
+    // Generate new QR code data
+    const qrData = crypto.randomBytes(32).toString('hex');
+    
+    patient.qrCode = {
+      data: qrData,
+      generatedAt: new Date(),
+      expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year
+      isActive: true
+    };
+    
+    await patient.save();
+    
+    // Generate QR code image (base64)
+    const QRCode = require('qrcode');
+    let qrCodeImage = null;
+    
+    try {
+      qrCodeImage = await QRCode.toDataURL(qrData, {
+        width: 300,
+        margin: 2,
+        color: {
+          dark: '#000000',
+          light: '#ffffff'
+        }
+      });
+    } catch (qrError) {
+      console.error('QR code generation error:', qrError);
+      // Continue without the image
+    }
+    
+    res.json({
+      message: 'QR code generated successfully',
+      qrData,
+      qrCode: qrCodeImage,
+      expiresAt: patient.qrCode.expiresAt
+    });
+  } catch (error) {
+    console.error('Generate QR error:', error);
+    logger.error('Generate QR error:', error);
+    res.status(500).json({ error: 'Failed to generate QR code' });
+  }
+});
+
+// Assign NFC tag to patient (admin only)
+app.post('/api/admin/patients/:id/assign-nfc', authenticateAdmin, async (req, res) => {
+  try {
+    const { nfcUid } = req.body;
+    
+    if (!nfcUid) {
+      return res.status(400).json({ error: 'NFC UID is required' });
+    }
+    
+    // Check if NFC tag is already assigned
+    const existingPatient = await Patient.findOne({ 'nfcTag.uid': nfcUid, 'nfcTag.isActive': true });
+    if (existingPatient) {
+      return res.status(400).json({ error: 'NFC tag is already assigned to another patient' });
+    }
+    
+    const patient = await Patient.findByIdAndUpdate(
+      req.params.id,
+      {
+        $set: {
+          'nfcTag.uid': nfcUid,
+          'nfcTag.isActive': true
+        }
+      },
+      { new: true }
+    );
+    
+    if (!patient) {
+      return res.status(404).json({ error: 'Patient not found' });
+    }
+    
+    res.json({
+      message: 'NFC tag assigned successfully',
+      patient: {
+        patientId: patient.patientId,
+        nfcTag: patient.nfcTag
+      }
+    });
+  } catch (error) {
+    console.error('Assign NFC error:', error);
+    logger.error('Assign NFC error:', error);
+    res.status(500).json({ error: 'Failed to assign NFC tag' });
+  }
+});
+
+// Verify NFC tag
+app.post('/api/patients/verify-nfc', authenticateToken, async (req, res) => {
+  try {
+    const { nfcUid } = req.body;
+    
+    if (!nfcUid) {
+      return res.status(400).json({ error: 'NFC UID is required' });
+    }
+    
+    const patient = await Patient.findByNFC(nfcUid);
+    
+    if (!patient) {
+      return res.status(404).json({ 
+        valid: false, 
+        error: 'NFC tag not found or inactive' 
+      });
+    }
+    
+    res.json({
+      valid: true,
+      patient: {
+        patientId: patient.patientId,
+        demographics: patient.demographics,
+        location: patient.location,
+        totalVisits: patient.totalVisits,
+        lastVisitDate: patient.lastVisitDate
+      }
+    });
+  } catch (error) {
+    console.error('Verify NFC error:', error);
+    logger.error('Verify NFC error:', error);
+    res.status(500).json({ error: 'Failed to verify NFC tag' });
+  }
+});
+
+// =============================================
+// END PATIENT MANAGEMENT
+// =============================================
+
 // Get all visits (admin only)
 app.get('/api/admin/visits', authenticateAdmin, async (req, res) => {
   try {
@@ -911,6 +1647,138 @@ app.post('/api/admin/visits/:visitId/verify', authenticateAdmin, async (req, res
     console.error('Visit verification error:', error);
     logger.error('Visit verification error:', error);
     res.status(500).json({ error: 'Failed to verify visit' });
+  }
+});
+
+// Verify visit on blockchain (admin only)
+app.get('/api/admin/visits/:visitId/blockchain-status', authenticateAdmin, async (req, res) => {
+  try {
+    const { visitId } = req.params;
+    
+    const visit = await Visit.findOne({ visitId });
+    if (!visit) {
+      return res.status(404).json({ error: 'Visit not found' });
+    }
+    
+    let blockchainStatus = {
+      isOnBlockchain: false,
+      blockNumber: null,
+      transactionHash: null,
+      blockTimestamp: null,
+      contractVerified: false
+    };
+    
+    // Check if blockchain is connected
+    if (contract && visit.blockchainTxHash) {
+      try {
+        // Get transaction receipt
+        const txReceipt = await provider.getTransactionReceipt(visit.blockchainTxHash);
+        if (txReceipt) {
+          const block = await provider.getBlock(txReceipt.blockNumber);
+          blockchainStatus = {
+            isOnBlockchain: true,
+            blockNumber: txReceipt.blockNumber,
+            transactionHash: visit.blockchainTxHash,
+            blockTimestamp: block ? new Date(block.timestamp * 1000).toISOString() : null,
+            contractVerified: txReceipt.status === 1,
+            gasUsed: txReceipt.gasUsed?.toString()
+          };
+        }
+      } catch (bcError) {
+        console.error('Blockchain query error:', bcError);
+        blockchainStatus.error = 'Failed to query blockchain';
+      }
+    } else if (!contract) {
+      blockchainStatus.error = 'Blockchain not connected';
+    } else if (!visit.blockchainTxHash) {
+      blockchainStatus.error = 'Visit not recorded on blockchain';
+    }
+    
+    res.json({
+      visitId: visit.visitId,
+      databaseStatus: {
+        isVerified: visit.isVerified,
+        verifiedBy: visit.verifiedBy,
+        verifiedAt: visit.verifiedAt,
+        status: visit.status
+      },
+      blockchainStatus
+    });
+  } catch (error) {
+    console.error('Blockchain status check error:', error);
+    logger.error('Blockchain status check error:', error);
+    res.status(500).json({ error: 'Failed to check blockchain status' });
+  }
+});
+
+// Record visit on blockchain (admin only)
+app.post('/api/admin/visits/:visitId/record-blockchain', authenticateAdmin, async (req, res) => {
+  try {
+    if (!req.admin.hasPermission('verify_visits')) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+    
+    const { visitId } = req.params;
+    
+    const visit = await Visit.findOne({ visitId }).populate('chw');
+    if (!visit) {
+      return res.status(404).json({ error: 'Visit not found' });
+    }
+    
+    if (!contract) {
+      return res.status(503).json({ error: 'Blockchain not connected' });
+    }
+    
+    if (visit.blockchainTxHash) {
+      return res.status(400).json({ error: 'Visit already recorded on blockchain' });
+    }
+    
+    try {
+      // Create a wallet from private key for signing
+      const privateKey = process.env.BLOCKCHAIN_PRIVATE_KEY || '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+      const wallet = new ethers.Wallet(privateKey, provider);
+      const contractWithSigner = contract.connect(wallet);
+      
+      // Prepare visit data
+      const patientId = visit.patientId || 'unknown';
+      const location = visit.location?.coordinates 
+        ? `${visit.location.coordinates.latitude},${visit.location.coordinates.longitude}`
+        : '0,0';
+      const signature = ethers.toUtf8Bytes(visit.chwSignature || '');
+      const visitTimestamp = Math.floor(new Date(visit.timestamp).getTime() / 1000);
+      
+      // Log the visit to blockchain
+      const tx = await contractWithSigner.logVisit(
+        patientId,
+        location,
+        signature,
+        visitTimestamp
+      );
+      
+      // Wait for transaction confirmation
+      const receipt = await tx.wait();
+      
+      // Update visit with blockchain info
+      visit.blockchainTxHash = receipt.hash;
+      visit.blockNumber = receipt.blockNumber;
+      await visit.save();
+      
+      res.json({
+        message: 'Visit recorded on blockchain successfully',
+        transaction: {
+          hash: receipt.hash,
+          blockNumber: receipt.blockNumber,
+          gasUsed: receipt.gasUsed?.toString()
+        }
+      });
+    } catch (bcError) {
+      console.error('Blockchain recording error:', bcError);
+      throw new Error('Failed to record on blockchain: ' + bcError.message);
+    }
+  } catch (error) {
+    console.error('Blockchain recording error:', error);
+    logger.error('Blockchain recording error:', error);
+    res.status(500).json({ error: error.message || 'Failed to record visit on blockchain' });
   }
 });
 
@@ -1216,6 +2084,39 @@ app.get('/api/admin/fraud-alerts', authenticateAdmin, async (req, res) => {
     console.error('Fraud detection error:', error);
     logger.error('Fraud detection error:', error);
     res.status(500).json({ error: 'Failed to perform fraud detection' });
+  }
+});
+
+// Resolve fraud alert
+app.post('/api/admin/fraud-alerts/:alertId/resolve', authenticateAdmin, async (req, res) => {
+  try {
+    if (!req.admin.hasPermission('fraud_detection')) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+    
+    const { alertId } = req.params;
+    const { resolution, resolvedBy, notes } = req.body;
+    
+    // In a production system, you would store alerts in a database
+    // For now, we'll just acknowledge the resolution
+    
+    logger.info(`Fraud alert ${alertId} resolved by ${resolvedBy || req.admin.adminId}: ${resolution}`);
+    
+    res.json({
+      message: 'Alert resolved successfully',
+      alert: {
+        id: alertId,
+        status: 'resolved',
+        resolution,
+        resolvedBy: resolvedBy || req.admin.adminId,
+        resolvedAt: new Date(),
+        notes
+      }
+    });
+  } catch (error) {
+    console.error('Resolve fraud alert error:', error);
+    logger.error('Resolve fraud alert error:', error);
+    res.status(500).json({ error: 'Failed to resolve alert' });
   }
 });
 

@@ -21,7 +21,20 @@
     "test:blockchain": "cd blockchain && npx hardhat test",
     "build:dashboard": "cd dashboard && npm run build",
     "build:mobile": "cd mobile-app && expo build:android",
-    "setup": "npm run install:all && npm run deploy:contracts"
+    "setup": "npm run install:all && npm run deploy:contracts",
+    "seed:admin": "cd backend && npm run seed:admin",
+    "seed:demo": "cd backend && npm run seed:demo",
+    "seed:all": "npm run seed:admin && npm run seed:demo",
+    "docker:dev": "docker-compose up --build",
+    "docker:dev:d": "docker-compose up --build -d",
+    "docker:prod": "docker-compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d",
+    "docker:down": "docker-compose down",
+    "docker:down:v": "docker-compose down -v",
+    "docker:logs": "docker-compose logs -f",
+    "docker:ps": "docker-compose ps",
+    "docker:seed": "docker-compose exec backend npm run seed:all",
+    "docker:shell:backend": "docker-compose exec backend sh",
+    "docker:shell:mongo": "docker-compose exec mongodb mongosh"
   },
   "keywords": [
     "blockchain",

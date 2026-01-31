@@ -4,8 +4,10 @@ import { CssBaseline, ThemeProvider, createTheme } from '@mui/material';
 import Dashboard from './components/Dashboard';
 import Visits from './components/Visits';
 import CHWs from './components/CHWs';
+import Patients from './components/Patients';
 import Analytics from './components/Analytics';
 import FraudDetection from './components/FraudDetection';
+import Settings from './components/Settings';
 import Navigation from './components/Navigation';
 import Login from './components/Login';
 import './App.css';
@@ -76,8 +78,11 @@ function App() {
               <Route path="/" element={<Dashboard />} />
               <Route path="/visits" element={<Visits />} />
               <Route path="/chws" element={<CHWs />} />
+              <Route path="/patients" element={<Patients />} />
               <Route path="/analytics" element={<Analytics />} />
               <Route path="/fraud" element={<FraudDetection />} />
+              <Route path="/settings" element={<Settings />} />
+            </Routes>
             </Routes>
           </>
         ) : (
